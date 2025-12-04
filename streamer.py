@@ -2,6 +2,8 @@
 from lossy_socket import LossyUDP
 # do not import anything else from socket except INADDR_ANY
 from socket import INADDR_ANY
+from collections import deque
+import struct
 
 
 class Streamer:
@@ -13,23 +15,56 @@ class Streamer:
         self.socket.bind((src_ip, src_port))
         self.dst_ip = dst_ip
         self.dst_port = dst_port
+        self.sequence_num = 0
+        self.buff = {}
+        self.expected = 0
+
 
     def send(self, data_bytes: bytes) -> None:
-        """Note that data_bytes can be larger than one packet."""
-        # Your code goes here!  The code below should be changed!
+        data_string = data_bytes.decode('utf-8')
+        self.buff = ''
+        splited_data = data_string.split(" ")
+        for i in splited_data:
+            if(len(self.buff) + len(i) < 1471) :
+                self.buff += i + " "
+            else : 
+                data_bytes = self.buff.encode('utf-8')
+                header = struct.pack("!B", self.sequence_num)
+                packet = header + data_bytes
+                self.sequence_num += 1
+                self.socket.sendto(packet, (self.dst_ip, self.dst_port))
+                self.buff = i + " "                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+        data_bytes = self.buff.encode('utf-8')
+        header = struct.pack("!B", self.sequence_num)
+        packet = header + data_bytes
+        self.sequence_num += 1
+        self.socket.sendto(packet, (self.dst_ip, self.dst_port))
 
-        # for now I'm just sending the raw application-level data in one UDP payload
-        self.socket.sendto(data_bytes, (self.dst_ip, self.dst_port))
+
 
     def recv(self) -> bytes:
-        """Blocks (waits) if no data is ready to be read from the connection."""
-        # your code goes here!  The code below should be changed!
         
-        # this sample code just calls the recvfrom method on the LossySocket
-        data, addr = self.socket.recvfrom()
-        # For now, I'll just pass the full UDP payload to the app
-        return data
+        packet, addr = self.socket.recvfrom()
+        sequence_num = packet[0]
+        data = packet[1:]
+        if sequence_num == self.expected :
+            self.expected += 1
+            return data
+        
+        else :
+            self.buff[sequence_num] = data
 
+        while self.expected in self.buff:
+            data = self.buff.pop(self.expected)
+            self.expected += 1
+            print("2")
+            return data
+        
+        
+
+        
+            
+        
     def close(self) -> None:
         """Cleans up. It should block (wait) until the Streamer is done with all
            the necessary ACKs and retransmissions"""

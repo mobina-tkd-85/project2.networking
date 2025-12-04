@@ -1,4 +1,5 @@
-from socket import socket, AF_INET, SOCK_DGRAM, timeout
+import socket
+from socket import  AF_INET, SOCK_DGRAM, timeout, SOL_SOCKET, SO_REUSEADDR
 import random
 from threading import Timer, Lock
 from time import sleep, time
@@ -43,10 +44,12 @@ sim = SimulationParams()
 stats = SimulationStats()
 
 
-class LossyUDP(socket):
+class LossyUDP(socket.socket):
     def __init__(self):
         self.stopped = False
         super().__init__(AF_INET, SOCK_DGRAM)
+        self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
         # make calls to socket.recvfrom timeout after one second, so that self.stopped is checked
         self.settimeout(1)
 

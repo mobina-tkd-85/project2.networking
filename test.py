@@ -2,7 +2,7 @@ from streamer import Streamer
 import sys
 import lossy_socket
 
-NUMS=1000
+NUMS=400
 
 
 def receive(s):
@@ -12,10 +12,12 @@ def receive(s):
         data = s.recv()
         print("recv returned {%s}" % data.decode('utf-8'))
         str_buf += data.decode('utf-8')
+
         for t in str_buf.split(" "):
-            if len(t) == 0:
-                # there could be a "" at the start or the end, if a space is there
+
+            if len(t) == 0: 
                 continue
+
             if int(t) == expected:
                 print("got %d!" % expected)
                 expected += 1
@@ -23,11 +25,11 @@ def receive(s):
             elif int(t) > expected:
                 print("ERROR: got %s but was expecting %d" %(t, expected))
                 sys.exit(-1)
+            
             else:
-                # we only received the first part of the number at the end
-                # we must leave it in the buffer and read more.
                 str_buf = t
                 break
+        
 
     
 def host1(listen_port, remote_port):
@@ -64,7 +66,7 @@ def host2(listen_port, remote_port):
 
 def main():
     lossy_socket.sim = lossy_socket.SimulationParams(loss_rate=0.0, corruption_rate=0.0,
-                                                     max_delivery_delay=0.0,
+                                                     max_delivery_delay=0.1,
                                                      become_reliable_after=100000.0)
 
     if len(sys.argv) < 4:
