@@ -24,52 +24,38 @@ class Streamer:
         max_payload = 1471
         offset = 0
 
-        while offset < len(data_bytes):
-            chunk = data_bytes[offset : offset + max_payload]
+        while offset < len(data_bytes) :
+            data = data_bytes[offset : offset + max_payload]
             offset += max_payload
-
-            # 2-byte header for seq
             header = struct.pack("!H", self.sequence_num)
-            packet = header + chunk
-
+            packet = header + data
             self.socket.sendto(packet, (self.dst_ip, self.dst_port))
-
-            # increment sequence number
             self.sequence_num += 1
-            if self.sequence_num > 1000:
-                self.sequence_num = 0  # wrap around
-
+        
 
 
     def recv(self) -> bytes:
         packet, addr = self.socket.recvfrom(2048)
 
-        # unpack 2-byte sequence number
         seq, = struct.unpack("!H", packet[:2])
         payload = packet[2:]
 
-        # initialize buffer & expected in __init__ if not already
         if not hasattr(self, 'recv_buffer'):
             self.recv_buffer = {}
             self.expected = 0
 
-        # in-order packet
         if seq == self.expected:
             self.expected += 1
             result = payload
 
-            # flush any buffered packets
             while self.expected in self.recv_buffer:
                 result += self.recv_buffer.pop(self.expected)
                 self.expected += 1
             return result
 
-        # out-of-order
         elif seq > self.expected:
             self.recv_buffer[seq] = payload
-            return b""  # nothing ready
-
-        # duplicate / old packet
+            return b"" 
         else:
             return b""
 
