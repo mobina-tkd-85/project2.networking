@@ -21,50 +21,62 @@ class Streamer:
 
 
     def send(self, data_bytes: bytes) -> None:
-        data_string = data_bytes.decode('utf-8')
-        self.buff = ''
-        splited_data = data_string.split(" ")
-        for i in splited_data:
-            if(len(self.buff) + len(i) < 1471) :
-                self.buff += i + " "
-            else : 
-                data_bytes = self.buff.encode('utf-8')
-                header = struct.pack("!B", self.sequence_num)
-                packet = header + data_bytes
-                self.sequence_num += 1
-                self.socket.sendto(packet, (self.dst_ip, self.dst_port))
-                self.buff = i + " "                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
-        data_bytes = self.buff.encode('utf-8')
-        header = struct.pack("!B", self.sequence_num)
-        packet = header + data_bytes
-        self.sequence_num += 1
-        self.socket.sendto(packet, (self.dst_ip, self.dst_port))
+        max_payload = 1471
+        offset = 0
+
+        while offset < len(data_bytes):
+            chunk = data_bytes[offset : offset + max_payload]
+            offset += max_payload
+
+            # 2-byte header for seq
+            header = struct.pack("!H", self.sequence_num)
+            packet = header + chunk
+
+            self.socket.sendto(packet, (self.dst_ip, self.dst_port))
+
+            # increment sequence number
+            self.sequence_num += 1
+            if self.sequence_num > 1000:
+                self.sequence_num = 0  # wrap around
 
 
 
     def recv(self) -> bytes:
-        
-        packet, addr = self.socket.recvfrom()
-        sequence_num = packet[0]
-        data = packet[1:]
-        if sequence_num == self.expected :
-            self.expected += 1
-            return data
-        
-        else :
-            self.buff[sequence_num] = data
+        packet, addr = self.socket.recvfrom(2048)
 
-        while self.expected in self.buff:
-            data = self.buff.pop(self.expected)
-            self.expected += 1
-            print("2")
-            return data
-        
-        
+        # unpack 2-byte sequence number
+        seq, = struct.unpack("!H", packet[:2])
+        payload = packet[2:]
 
-        
+        # initialize buffer & expected in __init__ if not already
+        if not hasattr(self, 'recv_buffer'):
+            self.recv_buffer = {}
+            self.expected = 0
+
+        # in-order packet
+        if seq == self.expected:
+            self.expected += 1
+            result = payload
+
+            # flush any buffered packets
+            while self.expected in self.recv_buffer:
+                result += self.recv_buffer.pop(self.expected)
+                self.expected += 1
+            return result
+
+        # out-of-order
+        elif seq > self.expected:
+            self.recv_buffer[seq] = payload
+            return b""  # nothing ready
+
+        # duplicate / old packet
+        else:
+            return b""
+
+
             
-        
+                
+            
     def close(self) -> None:
         """Cleans up. It should block (wait) until the Streamer is done with all
            the necessary ACKs and retransmissions"""
