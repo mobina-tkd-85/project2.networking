@@ -4,6 +4,8 @@ from lossy_socket import LossyUDP
 from socket import INADDR_ANY
 from collections import deque
 import struct
+from concurrent.futures import ThreadPoolExecutor
+from threading import lock
 
 
 class Streamer:
@@ -16,13 +18,20 @@ class Streamer:
         self.dst_ip = dst_ip
         self.dst_port = dst_port
         self.sequence_num = 0
-        self.buff = {}
+        self.recv_buffer = {}
         self.expected = 0
+        self.closed = False
+        self.last_ack = -1
+        self.lock = lock()
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.executor.submit(self.listener) 
+
 
 
     def send(self, data_bytes: bytes) -> None:
         max_payload = 1471
         offset = 0
+        # you need to add a packet type later
 
         while offset < len(data_bytes) :
             data = data_bytes[offset : offset + max_payload]
@@ -35,35 +44,38 @@ class Streamer:
 
 
     def recv(self) -> bytes:
-        packet, addr = self.socket.recvfrom(2048)
-
-        seq, = struct.unpack("!H", packet[:2])
-        payload = packet[2:]
-
-        if not hasattr(self, 'recv_buffer'):
-            self.recv_buffer = {}
-            self.expected = 0
-
-        if seq == self.expected:
-            self.expected += 1
-            result = payload
-
-            while self.expected in self.recv_buffer:
-                result += self.recv_buffer.pop(self.expected)
+        while self.lock:
+            if self.sequence_num in self.recv_buffer:
+                payload = self.recv_buffer.pop(sequence_num)
                 self.expected += 1
-            return result
-
-        elif seq > self.expected:
-            self.recv_buffer[seq] = payload
-            return b"" 
-        else:
-            return b""
+                return payload
 
 
+
+    def listener(self):
+        while not self.closed:
+            try:
+                data, addr = self.socket.recvfrom()
+                packet_type, sequence_num, payload = self.parse_packet(data)
+
+                if packet_type == "DATA" :
+                    while self.lock :
+                        self.recv_buffer[sequence_num] = payload
+                elif packet_type == "ACK":
+                    while self.lock :
+                        self.last_ack = sequence_num
+            except Exception as e:
+                print("listener died :)" + e) 
+                breaks 
+
+    def parse_packet(self, data) :
+        
             
                 
             
     def close(self) -> None:
+        self.closed = True 
+        self.socket.stoprecv()
         """Cleans up. It should block (wait) until the Streamer is done with all
            the necessary ACKs and retransmissions"""
         # your code goes here, especially after you add ACKs and retransmissions.
