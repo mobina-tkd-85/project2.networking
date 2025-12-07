@@ -29,22 +29,59 @@ class Streamer:
 
 
     def send(self, data_bytes: bytes) -> None:
+
+        for chunk in self.split_into_chunks(data_bytes):
+            packet = self.make_packet("DATA", self.sequence_num)
+
+            while True:
+                self.socket.sendto(packet, (self.dst_ip, self.dst_port))
+                start = time()
+
+                while time() - start < 0.3:
+                    with self.lock :
+                        if self.last_ack == self.sequence_num :
+                            self.sequence_num += 1
+                            break
+                    sleep(0.01)
+                # this else runs just when the loop did not break
+                else:
+                    continue
+                    
+                break
+
+        # intil modify recv()
+
+
+
+
+
+        
+        
+        # you need to add a packet type later
+        header = struct.pack("!H", self.sequence_num)
+        packet = header + data
+        self.socket.sendto(packet, (self.dst_ip, self.dst_port))
+        self.sequence_num += 1
+
+        
+
+
+
+    def split_into_chunks(self, payload) :
         max_payload = 1471
         offset = 0
-        # you need to add a packet type later
+        chunks = []
 
         while offset < len(data_bytes) :
             data = data_bytes[offset : offset + max_payload]
             offset += max_payload
-            header = struct.pack("!H", self.sequence_num)
-            packet = header + data
-            self.socket.sendto(packet, (self.dst_ip, self.dst_port))
-            self.sequence_num += 1
+            chunks.append(data)
+            
         
 
 
     def recv(self) -> bytes:
-        while self.lock:
+        with self.lock:
             if self.sequence_num in self.recv_buffer:
                 payload = self.recv_buffer.pop(sequence_num)
                 self.expected += 1
@@ -59,16 +96,18 @@ class Streamer:
                 packet_type, sequence_num, payload = self.parse_packet(data)
 
                 if packet_type == "DATA" :
-                    while self.lock :
+                    with self.lock :
                         self.recv_buffer[sequence_num] = payload
                 elif packet_type == "ACK":
-                    while self.lock :
+                    with self.lock :
                         self.last_ack = sequence_num
             except Exception as e:
                 print("listener died :)" + e) 
-                breaks 
+                break
 
     def parse_packet(self, data) :
+        seq, = struct.unpack("!H H", data[:2], data[2:4])
+        payload = data[4:]
         
             
                 
