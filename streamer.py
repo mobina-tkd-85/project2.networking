@@ -21,7 +21,7 @@ class Streamer:
         self.dst_ip = dst_ip
         self.dst_port = dst_port
         # recieve setups
-        self.sequence_num = 0
+        self.sequence_num = 0 # you use it while creating the packets
         self.recv_buffer = {}
         self.expected = 0
         self.last_ack = -1
@@ -46,8 +46,8 @@ class Streamer:
                 while time() - start < 0.3:
                     with self.lock :
                         print(f"last {self.last_ack} and seq {self.expected}")
-                        if self.last_ack == self.expected :
-                            self.expected += 1
+                        if self.last_ack == self.sequence_num :
+                            self.sequence_num += 1
                             break
                     sleep(0.01)
                 else:
@@ -57,10 +57,7 @@ class Streamer:
 
 
     def make_packet(self, p_type, payload) :
-        if p_type == "DATA" :
-            t = 1
-        else :
-            t = 2
+        t = 1 if p_type == "DATA" else 2
         
         header = struct.pack(("!B H"),t, self.sequence_num)
         return header + payload
@@ -112,10 +109,8 @@ class Streamer:
 
         
     def send_ack(self, seq) :
-        packet = self.make_packet(2, b"")
-        if self.last_ack == seq - 1 :
-            print(f"sending ack for {seq}")
-            self.socket.sendto(packet, (self.dst_ip, self.dst_port))
+        packet = self.make_packet("ACK", b"")
+        self.socket.sendto(packet, (self.dst_ip, self.dst_port))
 
 
 

@@ -32,7 +32,7 @@ def receive(s):
                 str_buf = t
                 break
         
-
+                
     
 def host1(listen_port, remote_port):
     s = Streamer(dst_ip="localhost", dst_port=remote_port,
