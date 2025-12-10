@@ -26,11 +26,18 @@ class Streamer:
         self.expected = 0
         self.last_ack = -1
 
+        # fin setups
+        self.fin_send = False
+        self.fin_ack_received = False
+        self.fin_received = False
+
         # thread setups
         self.closed = False
         self.lock = Lock()
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.executor.submit(self.listener) 
+
+
 
 
 
@@ -57,7 +64,14 @@ class Streamer:
 
 
     def make_packet(self, p_type, payload) :
-        t = 1 if p_type == "DATA" else 2
+        if p_type == "DATA":
+            t = 1
+        elif p_type == "ACK":
+            t = 2
+        elif p_type == "FIN":
+            t = 3 
+        elif p_type == "FIN_ACK":
+            t = 4 
         
         header = struct.pack(("!B H"),t, self.sequence_num)
         return header + payload
@@ -103,6 +117,17 @@ class Streamer:
                         self.last_ack += 1
                         print(f"recieving ack for {self.last_ack}")
 
+                elif packet_type == "FIN":
+                    with self.lock :
+                        self.fin_received = True
+                        fin_ack_packet = self.make_packet("FIN_ACK", b"")
+
+                elif packet_type == "FIN_ACK":
+                    with self.lock :
+                        self.fin_ack_received = True
+                    # i suppose you can close the connection
+
+
             except Exception as e:
                 print("listener died :)" + e) 
                 break
@@ -126,9 +151,31 @@ class Streamer:
                 
             
     def close(self) -> None:
-        self.closed = True 
+
+        while self.last_ack + 1 != self.sequence_num:
+            sleep(0.01) 
+
+        fin_packet = self.make_packet("FIN", b"")
+
+
+        while not self.fin_ack_received :
+            self.socket.sendto(fin_packet, (dst_ip, dst_port))
+            start = time() 
+
+            while time() - start < 0.25 :
+                if self.fin_ack_received :
+                    break
+                sleep(0.01)
+
+        while not self.fin_received :
+            sleep(0.01)
+
+         
+        sleep(2)
+
+        self.closed = True
         self.socket.stoprecv()
-        """Cleans up. It should block (wait) until the Streamer is done with all
-           the necessary ACKs and retransmissions"""
-        # your code goes here, especially after you add ACKs and retransmissions.
-        pass
+                    
+
+
+        
