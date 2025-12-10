@@ -27,7 +27,7 @@ def receive(s):
             elif int(t) > expected:
                 print("ERROR: got %s but was expecting %d" %(t, expected))
                 sys.exit(-1)
-            
+              
             else:
                 str_buf = t
                 break
