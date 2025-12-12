@@ -44,7 +44,7 @@ class Streamer:
     def send(self, data_bytes: bytes) -> None:
 
         for chunk in self.split_into_chunks(data_bytes):
-            packet = self.make_packet("DATA", chunk)
+            packet = self.make_packet("DATA", self.sequence_num, chunk)
 
             while True:
                 self.socket.sendto(packet, (self.dst_ip, self.dst_port))
@@ -52,7 +52,7 @@ class Streamer:
 
                 while time() - start < 0.3:
                     with self.lock :
-                        print(f"last {self.last_ack} and seq {self.expected}")
+                        print(f"last {self.last_ack} and seq {self.sequence_num}")
                         if self.last_ack == self.sequence_num :
                             self.sequence_num += 1
                             break
@@ -63,7 +63,7 @@ class Streamer:
                 break
 
 
-    def make_packet(self, p_type, payload) :
+    def make_packet(self, p_type, seq, payload) :
         if p_type == "DATA":
             t = 1
         elif p_type == "ACK":
@@ -73,7 +73,7 @@ class Streamer:
         elif p_type == "FIN_ACK":
             t = 4 
         
-        header = struct.pack(("!B H"),t, self.sequence_num)
+        header = struct.pack(("!B H"),t, seq)
         return header + payload
 
 
@@ -115,12 +115,12 @@ class Streamer:
                 elif packet_type == "ACK":
                     with self.lock :
                         self.last_ack += 1
-                        print(f"recieving ack for {self.last_ack}")
+                        print(f"recieving ack for {self.last_ack} + {self.sequence_num}")
 
                 elif packet_type == "FIN":
                     with self.lock :
                         self.fin_received = True
-                        fin_ack_packet = self.make_packet("FIN_ACK", b"")
+                        self.send_fin_ack(self.sequence_num)
 
                 elif packet_type == "FIN_ACK":
                     with self.lock :
@@ -134,7 +134,11 @@ class Streamer:
 
         
     def send_ack(self, seq) :
-        packet = self.make_packet("ACK", b"")
+        packet = self.make_packet("ACK", seq, b"")
+        self.socket.sendto(packet, (self.dst_ip, self.dst_port))
+
+    def send_fin_ack(self, seq) :
+        packet = self.make_packet("FIN_ACK", seq, b"")
         self.socket.sendto(packet, (self.dst_ip, self.dst_port))
 
 
@@ -144,8 +148,18 @@ class Streamer:
         payload = data[3:]
         if t == 1:
             return "DATA", seq, payload
-        else :
+        elif t == 2 :
             return "ACK", seq, b""
+        elif t == 3 :
+            return "FIN", seq, b""
+    
+        elif t == 4 :
+            return "FIN_ACK", seq, b""
+        
+        else :
+            print("Unknown type...")
+    
+        
     
         
                 
@@ -153,13 +167,14 @@ class Streamer:
     def close(self) -> None:
 
         while self.last_ack + 1 != self.sequence_num:
+            print("all packets arrived till now..........")
             sleep(0.01) 
 
-        fin_packet = self.make_packet("FIN", b"")
+        fin_packet = self.make_packet("FIN", self.sequence_num + 1, b"")
 
 
         while not self.fin_ack_received :
-            self.socket.sendto(fin_packet, (dst_ip, dst_port))
+            self.socket.sendto(fin_packet, (self.dst_ip, self.dst_port))
             start = time() 
 
             while time() - start < 0.25 :
