@@ -7,6 +7,7 @@ import struct
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from time import time, sleep
+import hashlib
 
 
 class Streamer:
@@ -44,7 +45,8 @@ class Streamer:
     def send(self, data_bytes: bytes) -> None:
 
         for chunk in self.split_into_chunks(data_bytes):
-            packet = self.make_packet("DATA", self.sequence_num, chunk)
+            digest = hashlib.md5(chunk).digest()
+            packet = self.make_packet("DATA", self.sequence_num, digest, chunk)
 
             while True:
                 self.socket.sendto(packet, (self.dst_ip, self.dst_port))
@@ -63,7 +65,7 @@ class Streamer:
                 break
 
 
-    def make_packet(self, p_type, seq, payload) :
+    def make_packet(self, p_type, seq, digest, payload) :
         if p_type == "DATA":
             t = 1
         elif p_type == "ACK":
@@ -74,7 +76,7 @@ class Streamer:
             t = 4 
         
         header = struct.pack(("!B H"),t, seq)
-        return header + payload
+        return header + digest + payload
 
 
     def split_into_chunks(self, payload) :
@@ -104,9 +106,17 @@ class Streamer:
         while not self.closed:
             try:
                 data, addr = self.socket.recvfrom()
-                packet_type, seq, payload = self.parse_packet(data)
+                packet_type, seq, digest, payload = self.parse_packet(data)
+
+
+                
 
                 if packet_type == "DATA" :
+                    calc_md5 = hashlib.md5(payload).digest()
+                    if calc_md5 != digest:
+                        print("Coruption accured")
+                        continue
+
                     with self.lock :
                         self.recv_buffer[seq] = payload
                         self.send_ack(seq)
@@ -127,6 +137,9 @@ class Streamer:
                         self.fin_ack_received = True
                     # i suppose you can close the connection
 
+                else :
+                    print("unknown packet type")
+
 
             except Exception as e:
                 print("listener died :)" + e) 
@@ -134,30 +147,30 @@ class Streamer:
 
         
     def send_ack(self, seq) :
-        packet = self.make_packet("ACK", seq, b"")
+        packet = self.make_packet("ACK", seq,b"", b"")
         self.socket.sendto(packet, (self.dst_ip, self.dst_port))
 
     def send_fin_ack(self, seq) :
-        packet = self.make_packet("FIN_ACK", seq, b"")
+        packet = self.make_packet("FIN_ACK", seq,b"", b"")
         self.socket.sendto(packet, (self.dst_ip, self.dst_port))
 
 
 
     def parse_packet(self, data) :
         t, seq = struct.unpack("!B H", data[:3])
-        payload = data[3:]
         if t == 1:
-            return "DATA", seq, payload
+            digest = data[3:19]
+            payload = data[19:]
+            return "DATA", seq, digest, payload
         elif t == 2 :
-            return "ACK", seq, b""
+            return "ACK", seq, None, None
         elif t == 3 :
-            return "FIN", seq, b""
-    
+            return "FIN", seq, None, None
         elif t == 4 :
-            return "FIN_ACK", seq, b""
-        
+            return "FIN_ACK", seq, None, None
         else :
-            print("Unknown type...")
+            return "Unknown", None, None, None
+            print(f"Unknown type...{t}")
     
         
     
@@ -170,7 +183,7 @@ class Streamer:
             print("all packets arrived till now..........")
             sleep(0.01) 
 
-        fin_packet = self.make_packet("FIN", self.sequence_num + 1, b"")
+        fin_packet = self.make_packet("FIN", self.sequence_num + 1, b"", b"")
 
 
         while not self.fin_ack_received :
