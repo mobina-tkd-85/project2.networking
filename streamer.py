@@ -51,10 +51,10 @@ class Streamer:
             while True:
                 self.socket.sendto(packet, (self.dst_ip, self.dst_port))
                 start = time()
-
+                
+                # it waites for the acknowledgement
                 while time() - start < 0.3:
                     with self.lock :
-                        print(f"last {self.last_ack} and seq {self.sequence_num}")
                         if self.last_ack == self.sequence_num :
                             self.sequence_num += 1
                             break
@@ -118,19 +118,24 @@ class Streamer:
                         continue
 
                     with self.lock :
-                        self.recv_buffer[seq] = payload
-                        self.send_ack(seq)
-                        
+                        if seq == self.expected:
+                            self.recv_buffer[seq] = payload
+                            self.send_ack(seq)
+                        elif seq < self.expected:
+                            self.send_ack(seq)  # duplicate
+                        else:
+                            # out-of-order, ignore or buffer carefully
+                            pass
+
 
                 elif packet_type == "ACK":
                     with self.lock :
-                        self.last_ack += 1
-                        print(f"recieving ack for {self.last_ack} + {self.sequence_num}")
+                        self.last_ack =  seq
 
                 elif packet_type == "FIN":
                     with self.lock :
                         self.fin_received = True
-                        self.send_fin_ack(self.sequence_num)
+                        self.send_fin_ack(seq)
 
                 elif packet_type == "FIN_ACK":
                     with self.lock :
@@ -158,10 +163,19 @@ class Streamer:
 
     def parse_packet(self, data) :
         t, seq = struct.unpack("!B H", data[:3])
+
+        if len(data) < 3:
+            return "Invalid", None, None, None
+
+        if t == 1 and len(data) < 19:
+            return "Invalid", None, None, None
+
+
         if t == 1:
             digest = data[3:19]
             payload = data[19:]
             return "DATA", seq, digest, payload
+        
         elif t == 2 :
             return "ACK", seq, None, None
         elif t == 3 :
@@ -180,7 +194,6 @@ class Streamer:
     def close(self) -> None:
 
         while self.last_ack + 1 != self.sequence_num:
-            print("all packets arrived till now..........")
             sleep(0.01) 
 
         fin_packet = self.make_packet("FIN", self.sequence_num + 1, b"", b"")
